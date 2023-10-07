@@ -4,12 +4,15 @@
             [tech.jgood.lo-mirli.ui :as ui]
             [tech.jgood.lo-mirli.settings :as settings]
             [tick.core :as t]
+            [potpuri.core :as pot]
             [rum.core :as rum]
             [xtdb.api :as xt]
             [ring.adapter.jetty9 :as jetty]
             [cheshire.core :as cheshire])
   (:import [java.util UUID]
-           [java.time ZoneId]))
+           [java.time ZoneId]
+           [java.time ZonedDateTime]
+           [java.time LocalDateTime]))
 
 (def about-page
   (ui/page
@@ -119,7 +122,7 @@
   {:status  303
    :headers {"location" "/app"}})
 
-(defn zukte-log-form [activities]
+(defn zukte-log-form [{:keys [zuktes time-zone]}]
   [:div.w-full.md:w-96.space-y-8
    (biff/form
     {:hx-post   "/app/log-zukte"
@@ -141,18 +144,19 @@
         (->> (java.time.ZoneId/getAvailableZoneIds)
              sort
              (map (fn [zoneId]
-                    [:option {:value zoneId} zoneId])))]]]
+                    [:option {:value zoneId
+                              :selected (= zoneId time-zone)} zoneId])))]]]
 
-     ;; Activities selection
+     ;; Zuktes selection
      [:div
-      [:label.block.text-sm.font-medium.leading-6.text-gray-900 {:for "zukte-refs"} "Activities"]
+      [:label.block.text-sm.font-medium.leading-6.text-gray-900 {:for "zukte-refs"} "Zuktes"]
       [:div.mt-2
        [:select.rounded-md.shadow-sm.block.w-full.border-0.py-1.5.text-gray-900.focus:ring-2.focus:ring-blue-600
         {:name "zukte-refs" :multiple true :required true :autocomplete "off"}
         (map (fn [zukte]
                [:option {:value (:xt/id zukte)}
                 (:zukte/name zukte)])
-             activities)]]]
+             zuktes)]]]
 
      ;; Timestamp input
      [:div
@@ -172,18 +176,26 @@
     [item]))
 
 (defn log-zukte [{:keys [session params] :as ctx}]
-  (let [id-strs       (-> params :zukte-refs ensure-vector)
-        tz            (-> params :time-zone)
-        timestamp-str (-> params :timestamp)
-        timestamp     (-> (str timestamp-str ":00Z[" tz "]") t/zoned-date-time t/inst)
-        zukte-ids  (mapv #(some-> % java.util.UUID/fromString) id-strs)
-        user-id       (:uid session)]
+  (let [id-strs        (-> params :zukte-refs ensure-vector)
+        tz             (-> params :time-zone)
+        timestamp-str  (-> params :timestamp)
+        local-datetime (java.time.LocalDateTime/parse timestamp-str)
+        zone-id        (java.time.ZoneId/of tz)
+        zdt            (java.time.ZonedDateTime/of local-datetime zone-id)
+        timestamp      (-> zdt (t/inst))
+        zukte-ids      (mapv #(some-> % java.util.UUID/fromString) id-strs)
+        user-id        (:uid session)]
 
+    (println (pot/map-of tz timestamp-str timestamp zdt zone-id local-datetime))
     (biff/submit-tx ctx
-                    [{:db/doc-type               :zukte-log
-                      :user/id                   user-id
-                      :zukte-log/timestamp    timestamp
-                      :zukte-log/zukte-ids zukte-ids}]))
+                    [{:db/doc-type         :zukte-log
+                      :user/id             user-id
+                      :zukte-log/timestamp timestamp
+                      :zukte-log/zukte-ids zukte-ids}
+                     {:db/op          :update
+                      :db/doc-type    :user
+                      :xt/id          user-id
+                      :user/time-zone tz}]))
 
   {:status  303
    :headers {"location" "/app"}})
@@ -192,21 +204,26 @@
   (let [user-id              (:uid session)
         {:user/keys [email]} (xt/entity db user-id)]
     (ui/page
-      {}
-      [:div
-       [:div.mb-4 "Signed in as " email ". "
-        (biff/form
-         {:action "/auth/signout"
-          :class  "inline"}
-         [:button.text-blue-500.hover:text-blue-800 {:type "submit"}
-          "Sign out"]) "."]
-       [:div.flex.flex-col.md:flex-row.justify-center
-        (zukte-form)
-        (let [activities (q db '{:find  (pull ?zukte [*])
-                                 :where [[?zukte :zukte/name]
-                                         [?zukte :user/id user-id]]
-                                 :in    [user-id]} user-id)]
-          (zukte-log-form activities))]])))
+     {}
+     [:div
+      [:div.mb-4 "Signed in as " email ". "
+       (biff/form
+        {:action "/auth/signout"
+         :class  "inline"}
+        [:button.text-blue-500.hover:text-blue-800 {:type "submit"}
+         "Sign out"]) "."]
+      [:div.flex.flex-col.md:flex-row.justify-center
+       (zukte-form)
+       (let [zuktes    (q db '{:find  (pull ?zukte [*])
+                               :where [[?zukte :zukte/name]
+                                       [?zukte :user/id user-id]]
+                               :in    [user-id]} user-id)
+             time-zone (first (first (q db '{:find  [?tz]
+                                             :where [[?user :xt/id user-id]
+                                                     [?user :user/time-zone ?tz]]
+                                             :in    [user-id]} user-id)))]
+         (println (str "time zone is: " time-zone))
+         (zukte-log-form (pot/map-of zuktes time-zone)))]])))
 
 (def plugin
   {:static {"/about/" about-page}
