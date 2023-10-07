@@ -70,26 +70,26 @@
 
      [:.h-6])))
 
-(defn activity-form []
+(defn zukte-form []
   [:div.m-2.w-full.md:w-96.space-y-8
    (biff/form
-    {:hx-post   "/app/add-activity"
+    {:hx-post   "/app/add-zukte"
      :hx-swap   "outerHTML"
-     :hx-select "#add-activity-form"
-     :id        "add-activity-form"}
+     :hx-select "#add-zukte-form"
+     :id        "add-zukte-form"}
 
     [:div
-     [:h2.text-base.font-semibold.leading-7.text-gray-900 "Add Activity"]
-     [:p.mt-1.text-sm.leading-6.text-gray-600 "Add a new activity to your list."]]
+     [:h2.text-base.font-semibold.leading-7.text-gray-900 "Add Zukte"]
+     [:p.mt-1.text-sm.leading-6.text-gray-600 "Add a new zukte to your list."]]
 
     [:div.grid.grid-cols-1.gap-y-6
 
-     ;; Activity Name
+     ;; Zukte Name
      [:div
-      [:label.block.text-sm.font-medium.leading-6.text-gray-900 {:for "activity-name"} "Activity Name"]
+      [:label.block.text-sm.font-medium.leading-6.text-gray-900 {:for "zukte-name"} "Zukte Name"]
       [:div.mt-2
        [:input.rounded-md.shadow-sm.block.w-full.border-0.py-1.5.text-gray-900.focus:ring-2.focus:ring-blue-600
-        {:type "text" :name "activity-name" :autocomplete "off"}]]]
+        {:type "text" :name "zukte-name" :autocomplete "off"}]]]
 
      ;; Is Sensitive?
      [:div.flex.items-center
@@ -107,29 +107,29 @@
      ;; Submit button
      [:div.mt-2.w-full
       [:button.bg-blue-500.hover:bg-blue-700.text-white.font-bold.py-2.px-4.rounded.w-full
-       {:type "submit"} "Add Activity"]]])])
+       {:type "submit"} "Add Zukte"]]])])
 
-(defn add-activity [{:keys [params session] :as ctx}]
+(defn add-zukte [{:keys [params session] :as ctx}]
   (biff/submit-tx ctx
-                  [{:db/doc-type        :activity
+                  [{:db/doc-type        :zukte
                     :user/id            (:uid session)
-                    :activity/name      (:activity-name params)
-                    :activity/sensitive (boolean (:sensitive params))
-                    :activity/notes     (:notes params)}])
+                    :zukte/name      (:zukte-name params)
+                    :zukte/sensitive (boolean (:sensitive params))
+                    :zukte/notes     (:notes params)}])
   {:status  303
    :headers {"location" "/app"}})
 
-(defn activity-log-form [activities]
+(defn zukte-log-form [activities]
   [:div.w-full.md:w-96.space-y-8
    (biff/form
-    {:hx-post   "/app/log-activity"
+    {:hx-post   "/app/log-zukte"
      :hx-swap   "outerHTML"
-     :hx-select "#log-activity-form"
-     :id        "log-activity-form"}
+     :hx-select "#log-zukte-form"
+     :id        "log-zukte-form"}
 
     [:div
-     [:h2.text-base.font-semibold.leading-7.text-gray-900 "Log Activity"]
-     [:p.mt-1.text-sm.leading-6.text-gray-600 "Log the activity with your desired settings."]]
+     [:h2.text-base.font-semibold.leading-7.text-gray-900 "Log Zukte"]
+     [:p.mt-1.text-sm.leading-6.text-gray-600 "Log the zukte with your desired settings."]]
 
     [:div.grid.grid-cols-1.gap-y-6
      ;; Time Zone selection
@@ -145,13 +145,13 @@
 
      ;; Activities selection
      [:div
-      [:label.block.text-sm.font-medium.leading-6.text-gray-900 {:for "activity-refs"} "Activities"]
+      [:label.block.text-sm.font-medium.leading-6.text-gray-900 {:for "zukte-refs"} "Activities"]
       [:div.mt-2
        [:select.rounded-md.shadow-sm.block.w-full.border-0.py-1.5.text-gray-900.focus:ring-2.focus:ring-blue-600
-        {:name "activity-refs" :multiple true :required true :autocomplete "off"}
-        (map (fn [activity]
-               [:option {:value (:xt/id activity)}
-                (:activity/name activity)])
+        {:name "zukte-refs" :multiple true :required true :autocomplete "off"}
+        (map (fn [zukte]
+               [:option {:value (:xt/id zukte)}
+                (:zukte/name zukte)])
              activities)]]]
 
      ;; Timestamp input
@@ -164,26 +164,26 @@
      ;; Submit button
      [:div.mt-2.w-full
       [:button.bg-blue-500.hover:bg-blue-700.text-white.font-bold.py-2.px-4.rounded.w-full
-       {:type "submit"} "Log Activity"]]])])
+       {:type "submit"} "Log Zukte"]]])])
 
 (defn ensure-vector [item]
   (if (vector? item)
     item
     [item]))
 
-(defn log-activity [{:keys [session params] :as ctx}]
-  (let [id-strs       (-> params :activity-refs ensure-vector)
+(defn log-zukte [{:keys [session params] :as ctx}]
+  (let [id-strs       (-> params :zukte-refs ensure-vector)
         tz            (-> params :time-zone)
         timestamp-str (-> params :timestamp)
         timestamp     (-> (str timestamp-str ":00Z[" tz "]") t/zoned-date-time t/inst)
-        activity-ids  (mapv #(some-> % java.util.UUID/fromString) id-strs)
+        zukte-ids  (mapv #(some-> % java.util.UUID/fromString) id-strs)
         user-id       (:uid session)]
 
     (biff/submit-tx ctx
-                    [{:db/doc-type               :activity-log
+                    [{:db/doc-type               :zukte-log
                       :user/id                   user-id
-                      :activity-log/timestamp    timestamp
-                      :activity-log/activity-ids activity-ids}]))
+                      :zukte-log/timestamp    timestamp
+                      :zukte-log/zukte-ids zukte-ids}]))
 
   {:status  303
    :headers {"location" "/app"}})
@@ -201,20 +201,20 @@
          [:button.text-blue-500.hover:text-blue-800 {:type "submit"}
           "Sign out"]) "."]
        [:div.flex.flex-col.md:flex-row.justify-center
-        (activity-form)
-        (let [activities (q db '{:find  (pull ?activity [*])
-                                 :where [[?activity :activity/name]
-                                         [?activity :user/id user-id]]
+        (zukte-form)
+        (let [activities (q db '{:find  (pull ?zukte [*])
+                                 :where [[?zukte :zukte/name]
+                                         [?zukte :user/id user-id]]
                                  :in    [user-id]} user-id)]
-          (activity-log-form activities))]])))
+          (zukte-log-form activities))]])))
 
 (def plugin
   {:static {"/about/" about-page}
    :routes ["/app" {:middleware [mid/wrap-signed-in]}
             ["" {:get app}]
             ["/db" {:get db-viz}]
-            ["/add-activity" {:post add-activity}]
-            ["/log-activity" {:post log-activity}]]})
+            ["/add-zukte" {:post add-zukte}]
+            ["/log-zukte" {:post log-zukte}]]})
 
 (comment
 
