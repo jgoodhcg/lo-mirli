@@ -3,8 +3,10 @@
             [tech.jgood.lo-mirli.middleware :as mid]
             [tech.jgood.lo-mirli.ui :as ui]
             [tech.jgood.lo-mirli.settings :as settings]
+            [clojure.string :as str]
             [tick.core :as t]
             [potpuri.core :as pot]
+            [clojure.pprint :refer [pprint]]
             [rum.core :as rum]
             [xtdb.api :as xt]
             [ring.adapter.jetty9 :as jetty]
@@ -232,26 +234,77 @@
 
 (defn zutke-list-item [{:zukte/keys [sensitive name notes]
                         id          :xt/id}]
-  [:div.hover:bg-gray-100.transition.duration-150.p-4.border-b.border-gray-200.cursor-pointer
+  [:div.hover:bg-gray-100.transition.duration-150.p-4.border-b.border-gray-200.cursor-pointer.w-full.md:w-96
    [:div.flex.justify-between
     [:h2.text-md.font-bold name]
     [:a.text-blue-500.hover:underline {:href (str "/app/zutke/" id)} "Edit"]]
    (when sensitive [:span.text-red-500.mr-2 "🙈"])
    [:p.text-sm.text-gray-600 notes]])
 
+(defn zukte-search-component []
+  [:div.my-2
+   [:h3
+    "Search Zuktes"
+    [:span.htmx-indicator " Searching..."]]
+
+   [:form
+    {:id           "zukte-search-form"
+     :hx-post      "/app/search-zuktes"
+     :hx-swap      "outerHTML"
+     :hx-trigger   "submit"
+     :hx-select    "#search-results"
+     :hx-target    "#search-results"
+     :hx-indicator ".htmx-indicator"}
+
+    [:div.flex.items-center.my-2
+     [:input.rounded.mr-2
+      {:type     "checkbox" :name "sensitive" :autocomplete "off"
+       :onchange "htmx.trigger('#zukte-search-form', 'submit', {})"}]
+     [:label.mr-4 {:for "sensitive"} "Sensitive"]]
+
+    [:input.form-control
+     {:type        "search"
+      :name        "search"
+      :placeholder "Begin Typing To Search Zuktes..."
+      :onkeyup     "clearTimeout(window.searchDelay); window.searchDelay = setTimeout(() => htmx.trigger('#zukte-search-form', 'submit', {}), 500)"}]]])
+
+(defn zuktes-query [{:keys [db user-id]}]
+  (q db '{:find  (pull ?zukte [*])
+          :where [[?zukte :zukte/name]
+                  [?zukte :user/id user-id]]
+          :in    [user-id]} user-id))
+
 (defn zutkes-page [{:keys [session biff/db]}]
   (let [user-id                        (:uid session)
         {:user/keys [email time-zone]} (xt/entity db user-id)
-        zuktes                         (q db '{:find  (pull ?zukte [*])
-                                               :where [[?zukte :zukte/name]
-                                                       [?zukte :user/id user-id]]
-                                               :in    [user-id]} user-id)]
+        zuktes                         (zuktes-query (pot/map-of db user-id))]
     (ui/page
      {}
      [:div
       (header (pot/map-of email))
-      (->> zuktes
-           (map zutke-list-item))])))
+      (zukte-search-component)
+      [:div {:id "search-results"}
+       (->> zuktes
+            (remove :zukte/sensitive)
+            (map zutke-list-item))]])))
+
+(defn zuktes-search [{:keys [session biff/db params]}]
+  (let [include-sensitive (-> params :sensitive boolean)
+        search-str        (-> params :search str/lower-case str/trim)
+        user-id           (:uid session)
+        zuktes            (zuktes-query (pot/map-of db user-id))]
+    (pprint (pot/map-of params include-sensitive search-str))
+    (ui/page {}
+             [:div {:id "search-results"}
+              (->> zuktes
+                   (filter (fn [{:zukte/keys [name notes sensitive]}]
+                             (let [matches-name      (str/includes? (str/lower-case name) search-str)
+                                   matches-notes     (str/includes? (str/lower-case notes) search-str)
+                                   matches-sensitive (or include-sensitive (not sensitive))]
+                               (pprint (pot/map-of name notes sensitive matches-name matches-notes matches-sensitive))
+                               (and matches-sensitive
+                                    (or matches-name matches-notes)))))
+                   (map zutke-list-item))])))
 
 (def plugin
   {:static {"/about/" about-page}
@@ -259,6 +312,7 @@
             ["" {:get app}]
             ["/db" {:get db-viz}]
             ["/zutkes" {:get zutkes-page}]
+            ["/search-zuktes" {:post zuktes-search}]
             ["/add-zukte" {:post zukte-create!}]
             ["/log-zukte" {:post zukte-log-create!}]]})
 
