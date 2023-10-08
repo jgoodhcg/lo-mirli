@@ -73,7 +73,7 @@
 
      [:.h-6])))
 
-(defn zukte-form []
+(defn zukte-create-form []
   [:div.m-2.w-full.md:w-96.space-y-8
    (biff/form
     {:hx-post   "/app/add-zukte"
@@ -112,7 +112,7 @@
       [:button.bg-blue-500.hover:bg-blue-700.text-white.font-bold.py-2.px-4.rounded.w-full
        {:type "submit"} "Add Zukte"]]])])
 
-(defn add-zukte [{:keys [params session] :as ctx}]
+(defn zukte-create! [{:keys [params session] :as ctx}]
   (biff/submit-tx ctx
                   [{:db/doc-type        :zukte
                     :user/id            (:uid session)
@@ -122,7 +122,7 @@
   {:status  303
    :headers {"location" "/app"}})
 
-(defn zukte-log-form [{:keys [zuktes time-zone]}]
+(defn zukte-log-create-form [{:keys [zuktes time-zone]}]
   [:div.w-full.md:w-96.space-y-8
    (biff/form
     {:hx-post   "/app/log-zukte"
@@ -175,7 +175,7 @@
     item
     [item]))
 
-(defn log-zukte [{:keys [session params] :as ctx}]
+(defn zukte-log-create! [{:keys [session params] :as ctx}]
   (let [id-strs        (-> params :zukte-refs ensure-vector)
         tz             (-> params :time-zone)
         timestamp-str  (-> params :timestamp)
@@ -200,20 +200,25 @@
   {:status  303
    :headers {"location" "/app"}})
 
+(defn header [{:keys [email]}]
+  [:div.space-x-8
+   [:span email]
+   [:a.link {:href "/app/zutkes"} "zutkes"]
+   (biff/form
+    {:action "/auth/signout"
+     :class  "inline"}
+    [:button.text-blue-500.hover:text-blue-800 {:type "submit"}
+     "Sign out"])])
+
 (defn app [{:keys [session biff/db]}]
   (let [user-id              (:uid session)
         {:user/keys [email]} (xt/entity db user-id)]
     (ui/page
      {}
      [:div
-      [:div.mb-4 "Signed in as " email ". "
-       (biff/form
-        {:action "/auth/signout"
-         :class  "inline"}
-        [:button.text-blue-500.hover:text-blue-800 {:type "submit"}
-         "Sign out"]) "."]
+      (header (pot/map-of email))
       [:div.flex.flex-col.md:flex-row.justify-center
-       (zukte-form)
+       (zukte-create-form)
        (let [zuktes    (q db '{:find  (pull ?zukte [*])
                                :where [[?zukte :zukte/name]
                                        [?zukte :user/id user-id]]
@@ -223,15 +228,39 @@
                                                      [?user :user/time-zone ?tz]]
                                              :in    [user-id]} user-id)))]
          (println (str "time zone is: " time-zone))
-         (zukte-log-form (pot/map-of zuktes time-zone)))]])))
+         (zukte-log-create-form (pot/map-of zuktes time-zone)))]])))
+
+(defn zutke-list-item [{:zukte/keys [sensitive name notes]
+                        id          :xt/id}]
+  [:div.hover:bg-gray-100.transition.duration-150.p-4.border-b.border-gray-200.cursor-pointer
+   [:div.flex.justify-between
+    [:h2.text-md.font-bold name]
+    [:a.text-blue-500.hover:underline {:href (str "/app/zutke/" id)} "Edit"]]
+   (when sensitive [:span.text-red-500.mr-2 "🙈"])
+   [:p.text-sm.text-gray-600 notes]])
+
+(defn zutkes-page [{:keys [session biff/db]}]
+  (let [user-id                        (:uid session)
+        {:user/keys [email time-zone]} (xt/entity db user-id)
+        zuktes                         (q db '{:find  (pull ?zukte [*])
+                                               :where [[?zukte :zukte/name]
+                                                       [?zukte :user/id user-id]]
+                                               :in    [user-id]} user-id)]
+    (ui/page
+     {}
+     [:div
+      (header (pot/map-of email))
+      (->> zuktes
+           (map zutke-list-item))])))
 
 (def plugin
   {:static {"/about/" about-page}
    :routes ["/app" {:middleware [mid/wrap-signed-in]}
             ["" {:get app}]
             ["/db" {:get db-viz}]
-            ["/add-zukte" {:post add-zukte}]
-            ["/log-zukte" {:post log-zukte}]]})
+            ["/zutkes" {:get zutkes-page}]
+            ["/add-zukte" {:post zukte-create!}]
+            ["/log-zukte" {:post zukte-log-create!}]]})
 
 (comment
 
