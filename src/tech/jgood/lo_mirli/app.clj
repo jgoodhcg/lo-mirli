@@ -205,7 +205,7 @@
 (defn header [{:keys [email]}]
   [:div.space-x-8
    [:span email]
-   [:a.link {:href "/app/zutkes"} "zutkes"]
+   [:a.link {:href "/app/zuktes"} "zuktes"]
    (biff/form
     {:action "/auth/signout"
      :class  "inline"}
@@ -232,37 +232,79 @@
          (println (str "time zone is: " time-zone))
          (zukte-log-create-form (pot/map-of zuktes time-zone)))]])))
 
-(defn zutke-list-item [{:zukte/keys [sensitive name notes]
-                        id          :xt/id}]
-  [:div.hover:bg-gray-100.transition.duration-150.p-4.border-b.border-gray-200.cursor-pointer.w-full.md:w-96
-   [:div.flex.justify-between
-    [:h2.text-md.font-bold name]
-    [:a.text-blue-500.hover:underline {:href (str "/app/zutke/" id)} "Edit"]]
-   (when sensitive [:span.text-red-500.mr-2 "🙈"])
-   [:p.text-sm.text-gray-600 notes]])
+(defn zukte-edit-form [zukte]
+  [:div.w-full.md:w-96.ring-4.ring-blue-500.rounded.p-2
+   (biff/form
+    {:hx-post   "/app/update-zukte"
+     :hx-swap   "outerHTML"
+     :hx-select "#zukte-edit-form"
+     :id        "zukte-edit-form"}
+
+    [:input {:type "hidden" :name "zukte-id" :value (:xt/id zukte)}]
+
+    [:div.grid.grid-cols-1.gap-y-6
+
+     ;; Zukte Name
+     [:div
+      [:label.block.text-sm.font-medium.leading-6.text-gray-900 {:for "zukte-name"} "Zukte Name"]
+      [:div.mt-2
+       [:input.rounded-md.shadow-sm.block.w-full.border-0.py-1.5.text-gray-900.focus:ring-2.focus:ring-blue-600
+        {:type "text" :name "zukte-name" :value (:zukte/name zukte)}]]]
+
+     ;; Is Sensitive?
+     [:div.flex.items-center
+      [:input.rounded.shadow-sm.mr-2.text-indigo-600.focus:ring-blue-500.focus:border-indigo-500
+       {:type "checkbox" :name "sensitive" :checked (:zukte/sensitive zukte)}]
+      [:label.text-sm.font-medium.leading-6.text-gray-900 {:for "sensitive"} "Is Sensitive?"]]
+
+     ;; Notes
+     [:div
+      [:label.block.text-sm.font-medium.leading-6.text-gray-900 {:for "notes"} "Notes"]
+      [:div.mt-2
+       [:textarea.rounded-md.shadow-sm.block.w-full.border-0.py-1.5.text-gray-900.focus:ring-2.focus:ring-blue-600
+        {:name "notes"} (:zukte/notes zukte)]]]
+
+     ;; Submit button
+     [:div.mt-2.w-full
+      [:button.bg-blue-500.hover:bg-blue-700.text-white.font-bold.py-2.px-4.rounded.w-full
+       {:type "submit"} "Update Zukte"]]])])
+
+(defn zukte-list-item [{:zukte/keys [sensitive name notes]
+                        edit-id     :edit-id
+                        id          :xt/id
+                        :as zukte}]
+  (pprint (pot/map-of :zukte-list-item edit-id))
+  (let [url    (str "/app/zuktes?edit=" id)]
+    (if (= edit-id id)
+      (zukte-edit-form zukte)
+      [:div.hover:bg-gray-100.transition.duration-150.p-4.border-b.border-gray-200.cursor-pointer.w-full.md:w-96
+       {:hx-get      url
+        :hx-swap     "outerHTML"
+        :hx-push-url url
+        :hx-target   "#zuktes-list"
+        :hx-select   "#zuktes-list"}
+       [:div.flex.justify-between
+        [:h2.text-md.font-bold name]]
+       (when sensitive [:span.text-red-500.mr-2 "🙈"])
+       [:p.text-sm.text-gray-600 notes]])))
 
 (defn zukte-search-component []
   [:div.my-2
-   [:h3
-    "Search Zuktes"
-    [:span.htmx-indicator " Searching..."]]
-
    [:form
     {:id           "zukte-search-form"
      :hx-post      "/app/search-zuktes"
      :hx-swap      "outerHTML"
      :hx-trigger   "submit"
-     :hx-select    "#search-results"
-     :hx-target    "#search-results"
-     :hx-indicator ".htmx-indicator"}
+     :hx-select    "#zuktes-list"
+     :hx-target    "#zuktes-list"}
 
-    [:div.flex.items-center.my-2
+    [:div.flex.items-center
      [:input.rounded.mr-2
       {:type     "checkbox" :name "sensitive" :autocomplete "off"
        :onchange "htmx.trigger('#zukte-search-form', 'submit', {})"}]
      [:label.mr-4 {:for "sensitive"} "Sensitive"]]
 
-    [:input.form-control
+    [:input.form-control.w-full.md:w-96
      {:type        "search"
       :name        "search"
       :placeholder "Begin Typing To Search Zuktes..."
@@ -274,44 +316,48 @@
                   [?zukte :user/id user-id]]
           :in    [user-id]} user-id))
 
-(defn zutkes-page [{:keys [session biff/db]}]
+(defn zuktes-page [{:keys [session biff/db params]}]
   (let [user-id                        (:uid session)
         {:user/keys [email time-zone]} (xt/entity db user-id)
-        zuktes                         (zuktes-query (pot/map-of db user-id))]
+        zuktes                         (zuktes-query (pot/map-of db user-id))
+        edit-id (-> params :edit (java.util.UUID/fromString))]
+    (pprint (pot/map-of :zuktes-page edit-id params))
     (ui/page
      {}
      [:div
       (header (pot/map-of email))
+      [:button.rounded.w-full.md:w-96.bg-blue-500.text-white.my-2
+       "Add zukte"]
       (zukte-search-component)
-      [:div {:id "search-results"}
+      [:div {:id "zuktes-list"}
        (->> zuktes
-            (remove :zukte/sensitive)
-            (map zutke-list-item))]])))
+            (remove (fn [{:zukte/keys [sensitive]
+                         id :xt/id}]
+                      (and sensitive (not= id edit-id))))
+            (map (fn [z] (zukte-list-item (-> z (assoc :edit-id edit-id))))))]])))
 
 (defn zuktes-search [{:keys [session biff/db params]}]
   (let [include-sensitive (-> params :sensitive boolean)
         search-str        (-> params :search str/lower-case str/trim)
         user-id           (:uid session)
         zuktes            (zuktes-query (pot/map-of db user-id))]
-    (pprint (pot/map-of params include-sensitive search-str))
     (ui/page {}
-             [:div {:id "search-results"}
+             [:div {:id "zuktes-list"}
               (->> zuktes
                    (filter (fn [{:zukte/keys [name notes sensitive]}]
                              (let [matches-name      (str/includes? (str/lower-case name) search-str)
                                    matches-notes     (str/includes? (str/lower-case notes) search-str)
                                    matches-sensitive (or include-sensitive (not sensitive))]
-                               (pprint (pot/map-of name notes sensitive matches-name matches-notes matches-sensitive))
                                (and matches-sensitive
                                     (or matches-name matches-notes)))))
-                   (map zutke-list-item))])))
+                   (map zukte-list-item))])))
 
 (def plugin
   {:static {"/about/" about-page}
    :routes ["/app" {:middleware [mid/wrap-signed-in]}
             ["" {:get app}]
             ["/db" {:get db-viz}]
-            ["/zutkes" {:get zutkes-page}]
+            ["/zuktes" {:get zuktes-page}]
             ["/search-zuktes" {:post zuktes-search}]
             ["/add-zukte" {:post zukte-create!}]
             ["/log-zukte" {:post zukte-log-create!}]]})
