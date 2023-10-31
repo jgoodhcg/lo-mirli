@@ -188,7 +188,6 @@
         zukte-ids      (mapv #(some-> % java.util.UUID/fromString) id-strs)
         user-id        (:uid session)]
 
-    (println (pot/map-of tz timestamp-str timestamp zdt zone-id local-datetime))
     (biff/submit-tx ctx
                     [{:db/doc-type         :zukte-log
                       :user/id             user-id
@@ -235,12 +234,12 @@
 (defn zukte-edit-form [zukte]
   [:div.w-full.md:w-96.ring-4.ring-blue-500.rounded.p-2
    (biff/form
-    {:hx-post   "/app/update-zukte"
+    {:hx-post   "/app/edit-zukte"
      :hx-swap   "outerHTML"
      :hx-select "#zukte-edit-form"
      :id        "zukte-edit-form"}
 
-    [:input {:type "hidden" :name "zukte-id" :value (:xt/id zukte)}]
+    [:input {:type "hidden" :name "id" :value (:xt/id zukte)}]
 
     [:div.grid.grid-cols-1.gap-y-6
 
@@ -249,7 +248,7 @@
       [:label.block.text-sm.font-medium.leading-6.text-gray-900 {:for "zukte-name"} "Zukte Name"]
       [:div.mt-2
        [:input.rounded-md.shadow-sm.block.w-full.border-0.py-1.5.text-gray-900.focus:ring-2.focus:ring-blue-600
-        {:type "text" :name "zukte-name" :value (:zukte/name zukte)}]]]
+        {:type "text" :name "name" :value (:zukte/name zukte)}]]]
 
      ;; Is Sensitive?
      [:div.flex.items-center
@@ -273,7 +272,6 @@
                         edit-id     :edit-id
                         id          :xt/id
                         :as zukte}]
-  (pprint (pot/map-of :zukte-list-item edit-id))
   (let [url    (str "/app/zuktes?edit=" id)]
     (if (= edit-id id)
       (zukte-edit-form zukte)
@@ -288,22 +286,41 @@
        (when sensitive [:span.text-red-500.mr-2 "🙈"])
        [:p.text-sm.text-gray-600 notes]])))
 
-(defn zukte-search-component []
+(defn zukte-search-component [{:keys [sensitive]}]
   [:div.my-2
-   [:form
-    {:id           "zukte-search-form"
-     :hx-post      "/app/search-zuktes"
-     :hx-swap      "outerHTML"
-     :hx-trigger   "submit"
-     :hx-select    "#zuktes-list"
-     :hx-target    "#zuktes-list"}
-
-    [:div.flex.items-center
+   [:div.flex.items-center
      [:input.rounded.mr-2
-      {:type     "checkbox" :name "sensitive" :autocomplete "off"
-       :onchange "htmx.trigger('#zukte-search-form', 'submit', {})"}]
-     [:label.mr-4 {:for "sensitive"} "Sensitive"]]
+      {:type         "checkbox"
+       :name         "sensitive"
+       :autocomplete "off"
+       :_            "on change setURLParameter(me.name, me.checked)"
+       :id           "zukte-sensitive-filter"
+       :hx-post      "/app/zuktes"
+       :hx-swap      "outerHTML"
+       :hx-trigger   "change"
+       :hx-select    "#zuktes-list"
+       :hx-target    "#zuktes-list"
+       :checked      sensitive}]
+    [:label.mr-4 {:for "sensitive"} "Sensitive"]]
 
+   ])
+
+#_(defn zukte-search-component []
+  [:div.my-2
+   [:div.flex.items-center
+     [:input.rounded.mr-2
+      {:type       "checkbox" :name "sensitive" :autocomplete "off"
+       :onchange   ""
+       :id         "zukte-sensitive-filter"
+       :hx-post    "/app/search-zuktes"
+       :hx-swap    "outerHTML"
+       :hx-trigger "change"
+       :hx-select  "#zuktes-list"
+       :hx-target  "#zuktes-list"}]
+    [:label.mr-4 {:for "sensitive"} "Sensitive"]]
+
+   #_[:form
+    {}
     [:input.form-control.w-full.md:w-96
      {:type        "search"
       :name        "search"
@@ -320,47 +337,57 @@
   (let [user-id                        (:uid session)
         {:user/keys [email time-zone]} (xt/entity db user-id)
         zuktes                         (zuktes-query (pot/map-of db user-id))
-        edit-id (-> params :edit (java.util.UUID/fromString))]
-    (pprint (pot/map-of :zuktes-page edit-id params))
+        edit-id                        (some-> params :edit (java.util.UUID/fromString))
+        include-sensitive              (some-> params :sensitive #(or (= % "on") (= % "true")))
+        search-str                     (or (some-> params :search str/lower-case str/trim) "")]
+    (pprint (pot/map-of :zuktes-page params))
     (ui/page
      {}
      [:div
       (header (pot/map-of email))
       [:button.rounded.w-full.md:w-96.bg-blue-500.text-white.my-2
        "Add zukte"]
-      (zukte-search-component)
+      (zukte-search-component {:sensitive include-sensitive})
       [:div {:id "zuktes-list"}
        (->> zuktes
-            (remove (fn [{:zukte/keys [sensitive]
-                         id :xt/id}]
-                      (and sensitive (not= id edit-id))))
+            ((fn [z] (println (count z)) z))
+            (filter (fn [{:zukte/keys [name notes sensitive]
+                         id          :xt/id}]
+                      (let [matches-name      (str/includes? (str/lower-case name) search-str)
+                            matches-notes     (str/includes? (str/lower-case notes) search-str)]
+                        (and (or include-sensitive
+                                 (-> id (= edit-id))
+                                 (not sensitive))
+                             (or matches-name
+                                 matches-notes)))))
             (map (fn [z] (zukte-list-item (-> z (assoc :edit-id edit-id))))))]])))
 
-(defn zuktes-search [{:keys [session biff/db params]}]
-  (let [include-sensitive (-> params :sensitive boolean)
-        search-str        (-> params :search str/lower-case str/trim)
-        user-id           (:uid session)
-        zuktes            (zuktes-query (pot/map-of db user-id))]
-    (ui/page {}
-             [:div {:id "zuktes-list"}
-              (->> zuktes
-                   (filter (fn [{:zukte/keys [name notes sensitive]}]
-                             (let [matches-name      (str/includes? (str/lower-case name) search-str)
-                                   matches-notes     (str/includes? (str/lower-case notes) search-str)
-                                   matches-sensitive (or include-sensitive (not sensitive))]
-                               (and matches-sensitive
-                                    (or matches-name matches-notes)))))
-                   (map zukte-list-item))])))
+(defn zukte-edit! [{:keys [session params] :as ctx}]
+  (pprint params)
+  (let [id        (-> params :id java.util.UUID/fromString)
+        name      (:name params)
+        notes     (-> params :notes str)
+        sensitive (-> params :sensitive boolean)]
+    (biff/submit-tx ctx
+                    [{:db/op           :update
+                      :db/doc-type     :zukte
+                      :xt/id           id
+                      :zukte/name      name
+                      :zukte/notes     notes
+                      :zukte/sensitive sensitive}]))
+  {:status  303
+   :headers {"location" "/zuktes"}})
 
 (def plugin
   {:static {"/about/" about-page}
    :routes ["/app" {:middleware [mid/wrap-signed-in]}
             ["" {:get app}]
             ["/db" {:get db-viz}]
-            ["/zuktes" {:get zuktes-page}]
-            ["/search-zuktes" {:post zuktes-search}]
+            ["/zuktes" {:get  zuktes-page
+                        :post zuktes-page}]
             ["/add-zukte" {:post zukte-create!}]
-            ["/log-zukte" {:post zukte-log-create!}]]})
+            ["/log-zukte" {:post zukte-log-create!}]
+            ["/edit-zukte" {:post zukte-edit!}]]})
 
 (comment
 
