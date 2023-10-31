@@ -228,7 +228,6 @@
                                              :where [[?user :xt/id user-id]
                                                      [?user :user/time-zone ?tz]]
                                              :in    [user-id]} user-id)))]
-         (println (str "time zone is: " time-zone))
          (zukte-log-create-form (pot/map-of zuktes time-zone)))]])))
 
 (defn zukte-edit-form [zukte]
@@ -286,46 +285,31 @@
        (when sensitive [:span.text-red-500.mr-2 "🙈"])
        [:p.text-sm.text-gray-600 notes]])))
 
-(defn zukte-search-component [{:keys [sensitive]}]
+(defn zukte-search-component [{:keys [sensitive search]}]
   [:div.my-2
-   [:div.flex.items-center
-     [:input.rounded.mr-2
-      {:type         "checkbox"
-       :name         "sensitive"
-       :autocomplete "off"
-       :_            "on change setURLParameter(me.name, me.checked)"
-       :id           "zukte-sensitive-filter"
-       :hx-post      "/app/zuktes"
-       :hx-swap      "outerHTML"
-       :hx-trigger   "change"
-       :hx-select    "#zuktes-list"
-       :hx-target    "#zuktes-list"
-       :checked      sensitive}]
-    [:label.mr-4 {:for "sensitive"} "Sensitive"]]
-
-   ])
-
-#_(defn zukte-search-component []
-  [:div.my-2
-   [:div.flex.items-center
-     [:input.rounded.mr-2
-      {:type       "checkbox" :name "sensitive" :autocomplete "off"
-       :onchange   ""
-       :id         "zukte-sensitive-filter"
-       :hx-post    "/app/search-zuktes"
+     [:form.flex.items-center
+      {:id         "zukte-search"
+       :hx-post    "/app/zuktes"
        :hx-swap    "outerHTML"
-       :hx-trigger "change"
+       :hx-trigger "search"
        :hx-select  "#zuktes-list"
-       :hx-target  "#zuktes-list"}]
-    [:label.mr-4 {:for "sensitive"} "Sensitive"]]
+       :hx-target  "#zuktes-list"}
+       [:input.rounded.mr-2
+        {:type         "checkbox"
+         :name         "sensitive"
+         :script       "on change setURLParameter(me.name, me.checked) then htmx.trigger('#zukte-search', 'search', {})"
+         :autocomplete "off"
+         :checked      sensitive}]
+      [:label.mr-4 {:for "sensitive"} "Sensitive"]
 
-   #_[:form
-    {}
-    [:input.form-control.w-full.md:w-96
-     {:type        "search"
-      :name        "search"
-      :placeholder "Begin Typing To Search Zuktes..."
-      :onkeyup     "clearTimeout(window.searchDelay); window.searchDelay = setTimeout(() => htmx.trigger('#zukte-search-form', 'submit', {}), 500)"}]]])
+       [:input.form-control.w-full.md:w-96
+        (merge {:type        "search"
+                :name        "search"
+                :placeholder "Begin Typing To Search Zuktes..."
+                :script      "on keyup setURLParameter(me.name, me.value) then htmx.trigger('#zukte-search', 'search', {})"}
+
+               (when (not (str/blank? search))
+                 {:value search}))]]])
 
 (defn zuktes-query [{:keys [db user-id]}]
   (q db '{:find  (pull ?zukte [*])
@@ -333,37 +317,45 @@
                   [?zukte :user/id user-id]]
           :in    [user-id]} user-id))
 
-(defn zuktes-page [{:keys [session biff/db params]}]
+(defn checkbox-true? [v]
+  (or (= v "on") (= v "true")))
+
+(defn search-str-xform [s]
+  (some-> s str/lower-case str/trim))
+
+(defn zuktes-page [{:keys [session biff/db params query-params]}]
   (let [user-id                        (:uid session)
         {:user/keys [email time-zone]} (xt/entity db user-id)
         zuktes                         (zuktes-query (pot/map-of db user-id))
         edit-id                        (some-> params :edit (java.util.UUID/fromString))
-        include-sensitive              (some-> params :sensitive #(or (= % "on") (= % "true")))
-        search-str                     (or (some-> params :search str/lower-case str/trim) "")]
-    (pprint (pot/map-of :zuktes-page params))
+        sensitive                      (or (some-> params :sensitive checkbox-true?)
+                                           (some-> query-params :sensitive checkbox-true?))
+        search                         (or (some-> params :search search-str-xform)
+                                           (some-> query-params :search search-str-xform)
+                                           "")]
+    (pprint (pot/map-of :zuktes-page params query-params sensitive search))
     (ui/page
      {}
      [:div
       (header (pot/map-of email))
       [:button.rounded.w-full.md:w-96.bg-blue-500.text-white.my-2
        "Add zukte"]
-      (zukte-search-component {:sensitive include-sensitive})
+      (zukte-search-component {:sensitive sensitive :search search})
       [:div {:id "zuktes-list"}
        (->> zuktes
-            ((fn [z] (println (count z)) z))
-            (filter (fn [{:zukte/keys [name notes sensitive]
+            (filter (fn [{:zukte/keys [name notes]
+                         this-zukte-is-sensitive :zukte/sensitive
                          id          :xt/id}]
-                      (let [matches-name      (str/includes? (str/lower-case name) search-str)
-                            matches-notes     (str/includes? (str/lower-case notes) search-str)]
-                        (and (or include-sensitive
+                      (let [matches-name  (str/includes? (str/lower-case name) search)
+                            matches-notes (str/includes? (str/lower-case notes) search)]
+                        (and (or sensitive
                                  (-> id (= edit-id))
-                                 (not sensitive))
+                                 (not this-zukte-is-sensitive))
                              (or matches-name
                                  matches-notes)))))
             (map (fn [z] (zukte-list-item (-> z (assoc :edit-id edit-id))))))]])))
 
 (defn zukte-edit! [{:keys [session params] :as ctx}]
-  (pprint params)
   (let [id        (-> params :id java.util.UUID/fromString)
         name      (:name params)
         notes     (-> params :notes str)
