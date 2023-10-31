@@ -230,14 +230,16 @@
                                              :in    [user-id]} user-id)))]
          (zukte-log-create-form (pot/map-of zuktes time-zone)))]])))
 
-(defn zukte-edit-form [zukte]
-  [:div.w-full.md:w-96.ring-4.ring-blue-500.rounded.p-2
-   (biff/form
-    {:hx-post   "/app/edit-zukte"
-     :hx-swap   "outerHTML"
-     :hx-select "#zukte-edit-form"
-     :id        "zukte-edit-form"}
+(defn zukte-edit-form [{id :xt/id
+                        sensitive :zukte/sensitive
+                        :as zukte}]
+  (biff/form
+   {:hx-post   "/app/edit-zukte"
+    :hx-swap   "outerHTML"
+    :hx-select (str "#zukte-list-item-" id)
+    :id        (str "zukte-list-item-" id)}
 
+   [:div.w-full.md:w-96.ring-4.ring-blue-500.rounded.p-2
     [:input {:type "hidden" :name "id" :value (:xt/id zukte)}]
 
     [:div.grid.grid-cols-1.gap-y-6
@@ -265,21 +267,23 @@
      ;; Submit button
      [:div.mt-2.w-full
       [:button.bg-blue-500.hover:bg-blue-700.text-white.font-bold.py-2.px-4.rounded.w-full
-       {:type "submit"} "Update Zukte"]]])])
+       {:type "submit"} "Update Zukte"]]]
+    ]))
 
 (defn zukte-list-item [{:zukte/keys [sensitive name notes]
                         edit-id     :edit-id
                         id          :xt/id
-                        :as zukte}]
-  (let [url    (str "/app/zuktes?edit=" id)]
+                        :as         zukte}]
+  (let [url (str "/app/zuktes?edit=" id (when sensitive "&sensitive=true"))]
     (if (= edit-id id)
       (zukte-edit-form zukte)
       [:div.hover:bg-gray-100.transition.duration-150.p-4.border-b.border-gray-200.cursor-pointer.w-full.md:w-96
-       {:hx-get      url
+       {:id          (str "zukte-list-item-" id)
+        :hx-get      url
         :hx-swap     "outerHTML"
         :hx-push-url url
-        :hx-target   "#zuktes-list"
-        :hx-select   "#zuktes-list"}
+        :hx-trigger  "click"
+        :hx-select   (str "#zukte-list-item-" id)}
        [:div.flex.justify-between
         [:h2.text-md.font-bold name]]
        (when sensitive [:span.text-red-500.mr-2 "🙈"])
@@ -287,29 +291,31 @@
 
 (defn zukte-search-component [{:keys [sensitive search]}]
   [:div.my-2
-     [:form.flex.items-center
-      {:id         "zukte-search"
-       :hx-post    "/app/zuktes"
-       :hx-swap    "outerHTML"
-       :hx-trigger "search"
-       :hx-select  "#zuktes-list"
-       :hx-target  "#zuktes-list"}
-       [:input.rounded.mr-2
-        {:type         "checkbox"
-         :name         "sensitive"
-         :script       "on change setURLParameter(me.name, me.checked) then htmx.trigger('#zukte-search', 'search', {})"
-         :autocomplete "off"
-         :checked      sensitive}]
-      [:label.mr-4 {:for "sensitive"} "Sensitive"]
+   (biff/form
+    {:id         "zukte-search"
+     :hx-post    "/app/zuktes"
+     :hx-swap    "outerHTML"
+     :hx-trigger "search"
+     :hx-select  "#zuktes-list"
+     :hx-target  "#zuktes-list"}
+    [:div.flex.items-center
 
-       [:input.form-control.w-full.md:w-96
-        (merge {:type        "search"
-                :name        "search"
-                :placeholder "Begin Typing To Search Zuktes..."
-                :script      "on keyup setURLParameter(me.name, me.value) then htmx.trigger('#zukte-search', 'search', {})"}
+     [:input.rounded.mr-2
+      {:type         "checkbox"
+       :name         "sensitive"
+       :script       "on change setURLParameter(me.name, me.checked) then htmx.trigger('#zukte-search', 'search', {})"
+       :autocomplete "off"
+       :checked      sensitive}]
+     [:label.mr-4 {:for "sensitive"} "Sensitive"]
 
-               (when (not (str/blank? search))
-                 {:value search}))]]])
+     [:input.form-control.w-full.md:w-96
+      (merge {:type        "search"
+              :name        "search"
+              :placeholder "Begin Typing To Search Zuktes..."
+              :script      "on keyup setURLParameter(me.name, me.value) then htmx.trigger('#zukte-search', 'search', {})"}
+
+             (when (not (str/blank? search))
+               {:value search}))]])])
 
 (defn zuktes-query [{:keys [db user-id]}]
   (q db '{:find  (pull ?zukte [*])
@@ -344,8 +350,8 @@
       [:div {:id "zuktes-list"}
        (->> zuktes
             (filter (fn [{:zukte/keys [name notes]
-                         this-zukte-is-sensitive :zukte/sensitive
-                         id          :xt/id}]
+                          this-zukte-is-sensitive :zukte/sensitive
+                          id          :xt/id}]
                       (let [matches-name  (str/includes? (str/lower-case name) search)
                             matches-notes (str/includes? (str/lower-case notes) search)]
                         (and (or sensitive
@@ -366,9 +372,9 @@
                       :xt/id           id
                       :zukte/name      name
                       :zukte/notes     notes
-                      :zukte/sensitive sensitive}]))
-  {:status  303
-   :headers {"location" "/zuktes"}})
+                      :zukte/sensitive sensitive}])
+    {:status  303
+     :headers {"location" (str "/app/zuktes" (when sensitive "?sensitive=true"))}}))
 
 (def plugin
   {:static {"/about/" about-page}
