@@ -267,8 +267,9 @@
      ;; Submit button
      [:div.mt-2.w-full
       [:button.bg-blue-500.hover:bg-blue-700.text-white.font-bold.py-2.px-4.rounded.w-full
-       {:type "submit"} "Update Zukte"]]]
-    ]))
+       {:type "submit"
+        :script "on click setURLParameter('edit', '')"}
+       "Update Zukte"]]]]))
 
 (defn zukte-list-item [{:zukte/keys [sensitive name notes]
                         edit-id     :edit-id
@@ -281,7 +282,8 @@
        {:id          (str "zukte-list-item-" id)
         :hx-get      url
         :hx-swap     "outerHTML"
-        :hx-push-url url
+        :script      (str "on click setURLParameter('edit', '" id
+                          "') then setURLParameter('sensitive', '" sensitive "')")
         :hx-trigger  "click"
         :hx-select   (str "#zukte-list-item-" id)}
        [:div.flex.justify-between
@@ -298,24 +300,33 @@
      :hx-trigger "search"
      :hx-select  "#zuktes-list"
      :hx-target  "#zuktes-list"}
-    [:div.flex.items-center
+    [:div.flex.flex-col.justify-center.my-6
 
-     [:input.rounded.mr-2
-      {:type         "checkbox"
-       :name         "sensitive"
-       :script       "on change setURLParameter(me.name, me.checked) then htmx.trigger('#zukte-search', 'search', {})"
-       :autocomplete "off"
-       :checked      sensitive}]
-     [:label.mr-4 {:for "sensitive"} "Sensitive"]
-
-     [:input.form-control.w-full.md:w-96
+     [:input.form-control.w-full.md:w-96.mb-2
       (merge {:type        "search"
               :name        "search"
               :placeholder "Begin Typing To Search Zuktes..."
               :script      "on keyup setURLParameter(me.name, me.value) then htmx.trigger('#zukte-search', 'search', {})"}
 
              (when (not (str/blank? search))
-               {:value search}))]])])
+               {:value search}))]
+
+     [:div.flex.flex-row.justify-start.items-center
+      [:label.mr-4 {:for "sensitive"} "Sensitive"]
+      [:input.rounded.mr-2
+       {:type         "checkbox"
+        :name         "sensitive"
+        :script       "on change setURLParameter(me.name, me.checked) then htmx.trigger('#zukte-search', 'search', {})"
+        :autocomplete "off"
+        :checked      sensitive}]
+      [:label.mx-4.text-gray-500.line-through {:for "archived"} "Archived"]
+      [:input.rounded.mr-2
+       {:type         "checkbox"
+        :name         "archived"
+        :script       "on change setURLParameter(me.name, me.checked) then htmx.trigger('#zukte-search', 'search', {})"
+        :autocomplete "off"
+        :disabled     true
+        :checked      false}]]])])
 
 (defn zuktes-query [{:keys [db user-id]}]
   (q db '{:find  (pull ?zukte [*])
@@ -344,7 +355,7 @@
      {}
      [:div
       (header (pot/map-of email))
-      [:button.rounded.w-full.md:w-96.bg-blue-500.text-white.my-2
+      [:button.bg-blue-500.hover:bg-blue-700.text-white.font-bold.py-2.px-4.rounded.w-full.md:w-96.mt-6
        "Add zukte"]
       (zukte-search-component {:sensitive sensitive :search search})
       [:div {:id "zuktes-list"}
