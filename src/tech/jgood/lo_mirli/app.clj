@@ -78,7 +78,7 @@
 (defn zukte-create-form []
   [:div.m-2.w-full.md:w-96.space-y-8
    (biff/form
-    {:hx-post   "/app/add-zukte"
+    {:hx-post   "/app/zukte/add"
      :hx-swap   "outerHTML"
      :hx-select "#add-zukte-form"
      :id        "add-zukte-form"}
@@ -127,7 +127,7 @@
 (defn zukte-log-create-form [{:keys [zuktes time-zone]}]
   [:div.w-full.md:w-96.space-y-8
    (biff/form
-    {:hx-post   "/app/log-zukte"
+    {:hx-post   "/app/zukte/log"
      :hx-swap   "outerHTML"
      :hx-select "#log-zukte-form"
      :id        "log-zukte-form"}
@@ -234,7 +234,7 @@
                         sensitive :zukte/sensitive
                         :as zukte}]
   (biff/form
-   {:hx-post   "/app/edit-zukte"
+   {:hx-post   "/app/zukte/edit"
     :hx-swap   "outerHTML"
     :hx-select (str "#zukte-list-item-" id)
     :id        (str "zukte-list-item-" id)}
@@ -394,9 +394,9 @@
             ["/db" {:get db-viz}]
             ["/zuktes" {:get  zuktes-page
                         :post zuktes-page}]
-            ["/add-zukte" {:post zukte-create!}]
-            ["/log-zukte" {:post zukte-log-create!}]
-            ["/edit-zukte" {:post zukte-edit!}]]})
+            ["/zukte/add" {:post zukte-create!}]
+            ["/zukte/log" {:post zukte-log-create!}]
+            ["/zukte/edit" {:post zukte-edit!}]]})
 
 (comment
 
