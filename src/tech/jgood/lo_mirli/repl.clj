@@ -56,18 +56,18 @@
                         :db/op               :update})))
          (biff/submit-tx ctx)))
 
+  ;; query zukte-logs with zukte names from refs in :zukte-log/zukte-ids
   (let [{:keys [biff/db] :as ctx} (get-context)
         user-id                   #uuid "1677c7f5-232d-47a5-9df7-244b040cdcb1"
         raw-results               (q db '{:find  [(pull ?zukte-log [*]) ?zukte-id ?zukte-name]
                                           :where [[?zukte-log :zukte-log/timestamp]
                                                   [?zukte-log :user/id user-id]
                                                   [?zukte-log :zukte-log/zukte-ids ?zukte-id]
-                                                  [?zukte :zukte/id ?zukte-id]
+                                                  [?zukte :xt/id ?zukte-id]
                                                   [?zukte :zukte/name ?zukte-name]]
                                           :in    [user-id]} user-id)]
-    raw-results
-   #_(->> raw-results
-         (group-by (fn [[zukte-log _ _]] (:zukte-log/id zukte-log))) ; Group by zukte-log id
+   (->> raw-results
+         (group-by (fn [[zukte-log _ _]] (:xt/id zukte-log))) ; Group by zukte-log id
          (map (fn [[log-id grouped-tuples]]
                 (let [zukte-log-map (first (first grouped-tuples))] ; Extract the zukte-log map from the first tuple
                   (assoc zukte-log-map :zukte-log/zuktes

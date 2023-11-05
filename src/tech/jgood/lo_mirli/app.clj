@@ -401,7 +401,7 @@
                                     [?user :xt/id user-id]
                                     [?user :user/time-zone ?tz]]
                             :in    [user-id]} user-id)]
-   (->> raw-results
+    (->> raw-results
          (group-by (fn [[zukte-log _ _]] (:xt/id zukte-log))) ; Group by zukte-log id
          (map (fn [[log-id grouped-tuples]]
                 ;; Extract the zukte-log map from the first tuple and tz from last
@@ -414,17 +414,24 @@
                               (map (fn [[_ ?zukte-id ?zukte-name]] ; Construct zukte maps
                                      {:zukte/id   ?zukte-id
                                       :zukte/name ?zukte-name})))))))
-         (into []))))
+         (into [])
+         (sort-by :zukte-log/timestamp)
+         (reverse))))
 
 (defn zukte-log-list-item [{:zukte-log/keys [timestamp zuktes notes]
                             user-id         :user/id
                             tz              :user/time-zone
                             id              :xt/id
                             :as             zukte-log}]
-  (let [url (str "/app/zukte-logs?view=" id)]
+  (let [url (str "/app/zukte-logs?view=" id)
+        formatted-timestamp (when timestamp
+                              (-> timestamp
+                                  (t/instant)
+                                  (t/in (t/zone tz))
+                                  (->> (t/format (t/formatter "yyyy-MM-dd HH:mm:ss z")))))]
     [:div.hover:bg-gray-100.transition.duration-150.p-4.border-b.border-gray-200.cursor-pointer.w-full.md:w-96
      {:id (str "zukte-log-list-item-" id)}
-     [:span (when timestamp (.toString timestamp))]
+     [:span formatted-timestamp]
      (when notes [:p.text-sm.text-gray-600 notes])
      [:div.flex.flex-col.mt-2
       (for [{zukte-id   :zukte/id
@@ -443,7 +450,6 @@
         search                         (or (some-> params :search search-str-xform)
                                            (some-> query-params :search search-str-xform)
                                            "")]
-    (pprint (pot/map-of :zukte-logs-page params query-params sensitive search zukte-logs))
     (ui/page
      {}
      [:div
