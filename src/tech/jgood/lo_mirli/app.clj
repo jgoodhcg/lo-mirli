@@ -137,17 +137,12 @@
      [:p.mt-1.text-sm.leading-6.text-gray-600 "Log the zukte with your desired settings."]]
 
     [:div.grid.grid-cols-1.gap-y-6
-     ;; Time Zone selection
+     ;; Timestamp input
      [:div
-      [:label.block.text-sm.font-medium.leading-6.text-gray-900 {:for "time-zone"} "Time Zone"]
+      [:label.block.text-sm.font-medium.leading-6.text-gray-900 {:for "timestamp"} "Timestamp"]
       [:div.mt-2
-       [:select.rounded-md.shadow-sm.block.w-full.border-0.py-1.5.text-gray-900.focus:ring-2.focus:ring-blue-600
-        {:name "time-zone" :required true :autocomplete "on"}
-        (->> (java.time.ZoneId/getAvailableZoneIds)
-             sort
-             (map (fn [zoneId]
-                    [:option {:value zoneId
-                              :selected (= zoneId time-zone)} zoneId])))]]]
+       [:input.rounded-md.shadow-sm.block.w-full.border-0.py-1.5.text-gray-900.focus:ring-2.focus:ring-blue-600
+        {:type "datetime-local" :name "timestamp" :required true}]]]
 
      ;; Zuktes selection
      [:div
@@ -160,13 +155,17 @@
                 (:zukte/name zukte)])
              zuktes)]]]
 
-     ;; Timestamp input
+     ;; Time Zone selection
      [:div
-      [:label.block.text-sm.font-medium.leading-6.text-gray-900 {:for "timestamp"} "Timestamp"]
+      [:label.block.text-sm.font-medium.leading-6.text-gray-900 {:for "time-zone"} "Time Zone"]
       [:div.mt-2
-       [:input.rounded-md.shadow-sm.block.w-full.border-0.py-1.5.text-gray-900.focus:ring-2.focus:ring-blue-600
-        {:type "datetime-local" :name "timestamp" :required true}]]]
-
+       [:select.rounded-md.shadow-sm.block.w-full.border-0.py-1.5.text-gray-900.focus:ring-2.focus:ring-blue-600
+        {:name "time-zone" :required true :autocomplete "on"}
+        (->> (java.time.ZoneId/getAvailableZoneIds)
+             sort
+             (map (fn [zoneId]
+                    [:option {:value    zoneId
+                              :selected (= zoneId time-zone)} zoneId])))]]]
      ;; Submit button
      [:div.mt-2.w-full
       [:button.bg-blue-500.hover:bg-blue-700.text-white.font-bold.py-2.px-4.rounded.w-full
@@ -185,7 +184,9 @@
         zone-id        (java.time.ZoneId/of tz)
         zdt            (java.time.ZonedDateTime/of local-datetime zone-id)
         timestamp      (-> zdt (t/inst))
-        zukte-ids      (mapv #(some-> % java.util.UUID/fromString) id-strs)
+        zukte-ids      (->> id-strs
+                            (map #(some-> % java.util.UUID/fromString))
+                            set)
         user-id        (:uid session)]
 
     (biff/submit-tx ctx
@@ -205,6 +206,7 @@
   [:div.space-x-8
    [:span email]
    [:a.link {:href "/app/zuktes"} "zuktes"]
+   [:a.link {:href "/app/zukte/logs"} "zukte logs"]
    (biff/form
     {:action "/auth/signout"
      :class  "inline"}
@@ -340,7 +342,9 @@
 (defn search-str-xform [s]
   (some-> s str/lower-case str/trim))
 
-(defn zuktes-page [{:keys [session biff/db params query-params]}]
+(defn zuktes-page
+  "Accepts GET and POST. POST is for search form as body."
+  [{:keys [session biff/db params query-params]}]
   (let [user-id                        (:uid session)
         {:user/keys [email time-zone]} (xt/entity db user-id)
         zuktes                         (zuktes-query (pot/map-of db user-id))
@@ -387,6 +391,69 @@
     {:status  303
      :headers {"location" (str "/app/zuktes" (when sensitive "?sensitive=true"))}}))
 
+(defn zukte-logs-query [{:keys [db user-id]}]
+  (let [raw-results (q db '{:find  [(pull ?zukte-log [*]) ?zukte-id ?zukte-name ?tz]
+                            :where [[?zukte-log :zukte-log/timestamp]
+                                    [?zukte-log :user/id user-id]
+                                    [?zukte-log :zukte-log/zukte-ids ?zukte-id]
+                                    [?zukte :xt/id ?zukte-id]
+                                    [?zukte :zukte/name ?zukte-name]
+                                    [?user :xt/id user-id]
+                                    [?user :user/time-zone ?tz]]
+                            :in    [user-id]} user-id)]
+   (->> raw-results
+         (group-by (fn [[zukte-log _ _]] (:xt/id zukte-log))) ; Group by zukte-log id
+         (map (fn [[log-id grouped-tuples]]
+                ;; Extract the zukte-log map from the first tuple and tz from last
+                (let [zukte-log-map (-> grouped-tuples first first)
+                      tz            (-> grouped-tuples first last)]
+                  (assoc zukte-log-map
+                         :user/time-zone tz
+                         :zukte-log/zuktes
+                         (->> grouped-tuples
+                              (map (fn [[_ ?zukte-id ?zukte-name]] ; Construct zukte maps
+                                     {:zukte/id   ?zukte-id
+                                      :zukte/name ?zukte-name})))))))
+         (into []))))
+
+(defn zukte-log-list-item [{:zukte-log/keys [timestamp zuktes notes]
+                            user-id         :user/id
+                            tz              :user/time-zone
+                            id              :xt/id
+                            :as             zukte-log}]
+  (let [url (str "/app/zukte-logs?view=" id)]
+    [:div.hover:bg-gray-100.transition.duration-150.p-4.border-b.border-gray-200.cursor-pointer.w-full.md:w-96
+     {:id (str "zukte-log-list-item-" id)}
+     [:span (when timestamp (.toString timestamp))]
+     (when notes [:p.text-sm.text-gray-600 notes])
+     [:div.flex.flex-col.mt-2
+      (for [{zukte-id   :zukte/id
+             zukte-name :zukte/name} zuktes]
+        [:span zukte-name])]]))
+
+(defn zukte-logs-page
+  "Accepts GET and POST. POST is for search form as body."
+  [{:keys [session biff/db params query-params]}]
+  (let [user-id                        (:uid session)
+        {:user/keys [email time-zone]} (xt/entity db user-id)
+        zukte-logs                     (zukte-logs-query (pot/map-of db user-id))
+        edit-id                        (some-> params :edit (java.util.UUID/fromString))
+        sensitive                      (or (some-> params :sensitive checkbox-true?)
+                                           (some-> query-params :sensitive checkbox-true?))
+        search                         (or (some-> params :search search-str-xform)
+                                           (some-> query-params :search search-str-xform)
+                                           "")]
+    (pprint (pot/map-of :zukte-logs-page params query-params sensitive search zukte-logs))
+    (ui/page
+     {}
+     [:div
+      (header (pot/map-of email))
+      [:button.bg-blue-500.hover:bg-blue-700.text-white.font-bold.py-2.px-4.rounded.w-full.md:w-96.mt-6
+       "Add Zukte Log"]
+      [:div {:id "zukte-logs-list"}
+       (->> zukte-logs
+            (map (fn [z] (zukte-log-list-item (-> z (assoc :edit-id edit-id))))))]])))
+
 (def plugin
   {:static {"/about/" about-page}
    :routes ["/app" {:middleware [mid/wrap-signed-in]}
@@ -394,6 +461,7 @@
             ["/db" {:get db-viz}]
             ["/zuktes" {:get  zuktes-page
                         :post zuktes-page}]
+            ["/zukte/logs" {:get zukte-logs-page}]
             ["/zukte/add" {:post zukte-create!}]
             ["/zukte/log" {:post zukte-log-create!}]
             ["/zukte/edit" {:post zukte-edit!}]]})

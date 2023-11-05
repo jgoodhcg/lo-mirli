@@ -21,7 +21,7 @@
                   [:xt/id                            :zukte-log/id]
                   [:user/id                          :user/id]
                   [:zukte-log/timestamp              inst?]
-                  [:zukte-log/zukte-ids              [:vector :zukte/id]]
+                  [:zukte-log/zukte-ids              [:set :zukte/id]]
                   [:zukte-log/notes {:optional true} :string]]})
 
 (def plugin

@@ -31,17 +31,51 @@
   ;; Query the database
   (let [{:keys [biff/db] :as ctx} (get-context)]
     (q db
-       '{:find (pull user [*])
+       '{:find  (pull user [*])
          :where [[user :user/email]]}))
 
   ;; Update an existing user's email address
   (let [{:keys [biff/db] :as ctx} (get-context)
-        user-id (biff/lookup-id db :user/email "hello@example.com")]
+        user-id                   (biff/lookup-id db :user/email "hello@example.com")]
     (biff/submit-tx ctx
-      [{:db/doc-type :user
-        :xt/id user-id
-        :db/op :update
-        :user/email "new.address@example.com"}]))
+                    [{:db/doc-type :user
+                      :xt/id       user-id
+                      :db/op       :update
+                      :user/email  "new.address@example.com"}]))
+
+  ;; Change all :zukte-log/zukte-ids from vecs to sets
+  (let [{:keys [biff/db] :as ctx} (get-context)
+        zukte-logs                (q db '{:find  (pull ?zukte-log [*])
+                                          :where [[?zukte-log :zukte-log/timestamp]]})]
+    (->> zukte-logs
+         (mapv (fn [{ids :zukte-log/zukte-ids
+                    :as zukte-log}]
+                (merge zukte-log
+                       {:zukte-log/zukte-ids (set ids)
+                        :db/doc-type         :zukte-log
+                        :db/op               :update})))
+         (biff/submit-tx ctx)))
+
+  (let [{:keys [biff/db] :as ctx} (get-context)
+        user-id                   #uuid "1677c7f5-232d-47a5-9df7-244b040cdcb1"
+        raw-results               (q db '{:find  [(pull ?zukte-log [*]) ?zukte-id ?zukte-name]
+                                          :where [[?zukte-log :zukte-log/timestamp]
+                                                  [?zukte-log :user/id user-id]
+                                                  [?zukte-log :zukte-log/zukte-ids ?zukte-id]
+                                                  [?zukte :zukte/id ?zukte-id]
+                                                  [?zukte :zukte/name ?zukte-name]]
+                                          :in    [user-id]} user-id)]
+    raw-results
+   #_(->> raw-results
+         (group-by (fn [[zukte-log _ _]] (:zukte-log/id zukte-log))) ; Group by zukte-log id
+         (map (fn [[log-id grouped-tuples]]
+                (let [zukte-log-map (first (first grouped-tuples))] ; Extract the zukte-log map from the first tuple
+                  (assoc zukte-log-map :zukte-log/zuktes
+                         (map (fn [[_ ?zukte-id ?zukte-name]] ; Construct zukte maps
+                                {:zukte/id   ?zukte-id
+                                 :zukte/name ?zukte-name})
+                              grouped-tuples)))))
+         (into [])))
 
   (sort (keys (get-context)))
 
